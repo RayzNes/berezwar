@@ -1,6 +1,6 @@
 # combat.py
 import random
-from constants import BASE_COMBAT_WIDTH
+from constants import BASE_COMBAT_WIDTH, TERRAIN_URBAN, TERRAIN_FOREST, TERRAIN_WATER
 
 
 class Combat:
@@ -23,13 +23,11 @@ class Combat:
         # Урон по снаряжению - пропорционально потерям людей
         if target.max_manpower > 0:
             loss_ratio = manpower_loss / target.max_manpower
-            # Уменьшаем каждый тип снаряжения пропорционально
             for eq_type in list(target.equipment.keys()):
                 if target.max_equipment.get(eq_type, 0) > 0:
                     equipment_loss = int(target.max_equipment[eq_type] * loss_ratio)
                     target.equipment[eq_type] = max(0, target.equipment.get(eq_type, 0) - equipment_loss)
 
-        # Обновляем боеспособность
         target.update_strength()
 
     def resolve_turn(self):
@@ -58,9 +56,21 @@ class Combat:
             stats_att = att.get_combat_stats()
             target = random.choice(self.defenders)
 
+            # Получаем показатель защиты обороняющейся дивизии
+            target_defense = target.get_combat_stats()["defense"]
+            # Модификатор защиты в городе: увеличивает защиту окопавшихся на 30%
+            if self.province.terrain == TERRAIN_URBAN:
+                target_defense *= 1.3
+
             # Урон по организации и прочности (базовый расчет)
-            damage_org = max(1, int(stats_att["soft_attack"] * 0.15 - target.get_combat_stats()["defense"] * 0.05))
+            damage_org = max(1, int(stats_att["soft_attack"] * 0.15 - target_defense * 0.05))
             damage_str = max(1, int(stats_att["hard_attack"] * 0.05))
+
+            # Штраф танков на 50% в Лесу или Городе
+            has_tanks = any(b.b_type == "tank" for b in att.template.battalions)
+            if self.province.terrain in (TERRAIN_FOREST, TERRAIN_URBAN) and has_tanks:
+                damage_org = max(1, int(damage_org * 0.5))
+                damage_str = max(1, int(damage_str * 0.5))
 
             self._apply_damage(target, damage_org, damage_str)
             self.log.append(
@@ -71,8 +81,17 @@ class Combat:
             stats_df = df.get_combat_stats()
             target = random.choice(active_attackers)
 
-            damage_org = max(1, int(stats_df["soft_attack"] * 0.15 - target.get_combat_stats()["defense"] * 0.05))
+            # Базовые параметры защиты у нападающего в полевых условиях атаки
+            target_defense = target.get_combat_stats()["defense"]
+
+            damage_org = max(1, int(stats_df["soft_attack"] * 0.15 - target_defense * 0.05))
             damage_str = max(1, int(stats_df["hard_attack"] * 0.05))
+
+            # Штраф обороняющихся танков на 50% при плотном городском бое или в лесном массиве
+            has_tanks = any(b.b_type == "tank" for b in df.template.battalions)
+            if self.province.terrain in (TERRAIN_FOREST, TERRAIN_URBAN) and has_tanks:
+                damage_org = max(1, int(damage_org * 0.5))
+                damage_str = max(1, int(damage_str * 0.5))
 
             self._apply_damage(target, damage_org, damage_str)
             self.log.append(
@@ -91,15 +110,14 @@ class Combat:
                 self.log.append(f"Дивизия обороны {df.name} разгромлена/отступила.")
                 self.defenders.remove(df)
                 self.province.divisions.remove(df)
-                # Пытаемся автоматически отступить в другую дружественную провинцию
+
                 friendly_provinces = [p for p in self.province.owner.provinces if
                                       p != self.province] if self.province.owner else []
                 if friendly_provinces:
                     target_retreat = friendly_provinces[0]
                     target_retreat.divisions.append(df)
                     df.province = target_retreat
-                    df.organization = 20.0  # Немного восстановим орг после отступления
-                    # При отступлении дивизия теряет часть снаряжения
+                    df.organization = 20.0
                     for eq_type in list(df.equipment.keys()):
                         df.equipment[eq_type] = int(df.equipment.get(eq_type, 0) * 0.8)
                     df.update_strength()
@@ -107,7 +125,6 @@ class Combat:
                     self.log.append(f"Дивизия {df.name} не нашла путей к отступлению и была уничтожена.")
                     if df in df.province.divisions:
                         df.province.divisions.remove(df)
-                    # Полностью удаляем её у владельца
                     owner = df.province.owner
                     if owner and df in owner.divisions:
                         owner.divisions.remove(df)

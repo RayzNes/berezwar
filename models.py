@@ -1,6 +1,8 @@
-# models.py
 import pygame
-from constants import COLOR_NEUTRAL, EQ_RIFLES, EQ_ARTILLERY, EQ_TRUCKS, EQ_TANKS, BASE_SUPPLY_LIMIT
+from constants import (
+    COLOR_NEUTRAL, EQ_RIFLES, EQ_ARTILLERY, EQ_TRUCKS, EQ_TANKS, BASE_SUPPLY_LIMIT,
+    TERRAIN_URBAN, PROD_RIFLES, PROD_NONE
+)
 
 
 class Leader:
@@ -32,6 +34,7 @@ class Country:
         self.political_power = 150
         self.fuel = 200.0
         self.money = 1000
+        self.raw_materials = 100  # Добавлен новый атрибут ресурсов сырья
         self.equipment = {
             EQ_RIFLES: 1000,
             EQ_ARTILLERY: 100,
@@ -45,17 +48,21 @@ class Country:
         self.armies = []
         self.commanders = []  # Пул генералов
 
-
 class Province:
     def __init__(self, id_num, name, polygon):
         self.id = id_num
         self.name = name
         self.polygon = polygon  # Вершины на исходной карте
-        self.owner = None       # Ссылка на Country
+        self.owner = None  # Ссылка на Country
 
-        # Новые военные поля
-        self.divisions = []     # Войска в провинции
+        # Военные поля
+        self.divisions = []  # Войска в провинции
         self.supply_limit = BASE_SUPPLY_LIMIT
+
+        # Добавленные поля Terrain и Экономики
+        self.terrain = TERRAIN_URBAN
+        self.has_mine = False
+        self.workshops = [PROD_RIFLES, PROD_NONE, PROD_NONE]  # На старте 1 активная мастерская и 2 слота пусты
 
     def get_screen_pos(self, zoom, pan_x, pan_y):
         """Находит приблизительный центр полигона для вывода иконок и текста"""

@@ -41,3 +41,15 @@ EQUIPMENT_NAMES = {
     EQ_TRUCKS: "Грузовики",
     EQ_TANKS: "Танки/Тракторы"
 }
+
+# Типы ландшафта
+TERRAIN_URBAN = "urban"
+TERRAIN_FOREST = "forest"
+TERRAIN_WATER = "water"
+
+# Типы производства для мастерских
+PROD_NONE = "none"
+PROD_RIFLES = "rifles"
+PROD_ARTILLERY = "artillery"
+PROD_TRUCKS = "trucks"
+PROD_TANKS = "tanks"

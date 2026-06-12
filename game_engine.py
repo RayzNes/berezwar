@@ -1,15 +1,15 @@
-# game_engine.py
 import pygame
 import os
 import random
 from constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT, COLOR_RED, COLOR_BLUE, COLOR_GREEN, COLOR_ORANGE,
-    EQ_RIFLES, EQ_ARTILLERY, EQ_TRUCKS, EQ_TANKS, MAX_PLANNING_BONUS
+    EQ_RIFLES, EQ_ARTILLERY, EQ_TRUCKS, EQ_TANKS, MAX_PLANNING_BONUS,
+    TERRAIN_URBAN, TERRAIN_FOREST, TERRAIN_WATER, PROD_NONE, PROD_RIFLES,
+    PROD_ARTILLERY, PROD_TRUCKS, PROD_TANKS
 )
 from models import Province, Country, Leader
 from military import Battalion, SupportCompany, DivisionTemplate, Division, Commander
 from combat import Combat
-
 
 class GameEngine:
     def __init__(self):
@@ -102,6 +102,16 @@ class GameEngine:
                 [(480, 270), (660, 270), (710, 430), (580, 470), (440, 400)]
             )
         ]
+
+        # Распределение ландшафтов и шахт согласно ТЗ
+        self.provinces[0].terrain = TERRAIN_URBAN
+        self.provinces[1].terrain = TERRAIN_WATER
+
+        self.provinces[2].terrain = TERRAIN_URBAN
+        self.provinces[2].has_mine = True  # На Западных Холмах установлена шахта
+
+        self.provinces[3].terrain = TERRAIN_FOREST
+        self.provinces[4].terrain = TERRAIN_FOREST
 
         # Распределение провинций фракциям
         self.provinces[0].owner = self.countries[0]
@@ -362,6 +372,7 @@ class GameEngine:
 
     def next_turn(self):
         """Переход к следующему ходу. Обработка боя, ресурсов и снабжения."""
+        """Переход к следующему ходу. Обработка боя, ресурсов и снабжения."""
         # 1. Сражения
         combats_still_active = []
         for combat in self.active_combats:
@@ -396,21 +407,42 @@ class GameEngine:
         # 2. Обработка планов
         self.process_battle_plans()
 
-        # 3. Прирост ресурсов страны
+        # 3. Прирост ресурсов страны (ПОЛНОСТЬЮ ПЕРЕПИСАННЫЙ БЛОК)
         for country in self.countries:
-            # Базовый прирост за контролируемые провинции
             prov_count = len(country.provinces)
-            country.manpower += prov_count * 100
-            country.political_power += 15
-            country.money += prov_count * 50
-            country.fuel += 20.0
 
-            # Автоматическая выработка базового снаряжения
-            country.equipment[EQ_RIFLES] += prov_count * 10
-            country.equipment[EQ_ARTILLERY] += prov_count * 1
-            country.equipment[EQ_TRUCKS] += max(1, prov_count // 2)
+            # Базовые начисления по провинциям (без людских ресурсов)
+            country.political_power += prov_count * 15
+            country.money += prov_count * 50
+            country.fuel += prov_count * 20.0
+
+            # Начисления от Шахт
+            for p in country.provinces:
+                if p.has_mine:
+                    country.manpower += 500
+                    country.raw_materials += 50
+
+            # Начисления от Мастерских за счет расхода сырья
+            for p in country.provinces:
+                for prod in p.workshops:
+                    if prod != PROD_NONE:
+                        # Каждая активная мастерская требует 2 единицы сырья
+                        if country.raw_materials >= 2:
+                            country.raw_materials -= 2
+                            if prod == PROD_RIFLES:
+                                country.equipment[EQ_RIFLES] += 10
+                            elif prod == PROD_ARTILLERY:
+                                country.equipment[EQ_ARTILLERY] += 2
+                            elif prod == PROD_TRUCKS:
+                                country.equipment[EQ_TRUCKS] += 2
+                            elif prod == PROD_TANKS:
+                                country.equipment[EQ_TANKS] += 1
+                        else:
+                            # Сырья в стране недостаточно, производство приостановлено
+                            pass
 
         # 4. Логистика и Снабжение
         self.calculate_logistics()
 
         self.turn += 1
+
