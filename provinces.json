@@ -1,0 +1,47 @@
+[
+  {
+    "id": 1,
+    "name": "Шахтёрский район (Центр)",
+    "polygon": [[300, 200], [450, 200], [400, 350], [250, 350]],
+    "starting_owner": "miners",
+    "terrain": "urban",
+    "has_mine": false,
+    "workshops": ["rifles", "none", "none"]
+  },
+  {
+    "id": 2,
+    "name": "Запрудный (ул. Королёва)",
+    "polygon": [[450, 200], [600, 200], [650, 350], [400, 350]],
+    "starting_owner": "admin",
+    "terrain": "water",
+    "has_mine": false,
+    "workshops": ["rifles", "none", "none"]
+  },
+  {
+    "id": 3,
+    "name": "Западные холмы (ул. Матросова)",
+    "polygon": [[250, 350], [400, 350], [350, 500], [200, 500]],
+    "starting_owner": "miners",
+    "terrain": "urban",
+    "has_mine": true,
+    "workshops": ["rifles", "none", "none"]
+  },
+  {
+    "id": 4,
+    "name": "Левобережный (ул. Леонова)",
+    "polygon": [[400, 350], [650, 350], [600, 500], [350, 500]],
+    "starting_owner": "makar",
+    "terrain": "forest",
+    "has_mine": false,
+    "workshops": ["rifles", "none", "none"]
+  },
+  {
+    "id": 5,
+    "name": "Восточные Дачи (ул. Гоголя)",
+    "polygon": [[600, 200], [750, 250], [700, 450], [650, 350]],
+    "starting_owner": "brotherhood",
+    "terrain": "forest",
+    "has_mine": false,
+    "workshops": ["rifles", "none", "none"]
+  }
+]

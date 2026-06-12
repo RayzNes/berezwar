@@ -47,6 +47,13 @@ class App:
         # Чит-меню кнопки
         self.cheat_buttons = []
 
+        # Настройки модального окна наций (ПКМ)
+        self.country_modal_active = False
+        self.selected_modal_country = None
+        self.country_modal_rect = None
+        self.modal_close_btn = None
+        self.modal_war_btn = None
+
     def open_faction_select(self):
         self.game = GameEngine()
         self.state = "FACTION_SELECT"
@@ -134,6 +141,32 @@ class App:
                 d.manpower = d.max_manpower
                 d.strength = 1.0
 
+    def open_country_info_modal(self, country):
+        """Инициализирует и открывает модальное окно наций"""
+        self.country_modal_active = True
+        self.selected_modal_country = country
+
+        modal_w, modal_h = 550, 450
+        modal_x = (SCREEN_WIDTH - modal_w) // 2
+        modal_y = (SCREEN_HEIGHT - modal_h) // 2
+        self.country_modal_rect = pygame.Rect(modal_x, modal_y, modal_w, modal_h)
+
+        self.modal_close_btn = Button(
+            modal_x + modal_w - 120, modal_y + modal_h - 55, 100, 35, "Закрыть", self.font_ui, bg_color=(192, 57, 43)
+        )
+
+        if country != self.game.player_country:
+            self.modal_war_btn = Button(
+                modal_x + 20, modal_y + modal_h - 55, 180, 35, "Объявить войну", self.font_ui, bg_color=(211, 84, 0)
+            )
+        else:
+            self.modal_war_btn = None
+
+    def declare_war_on_country(self, country):
+        """Выполняет декларацию агрессии в сторону другой нации"""
+        print(f"[ДИПЛОМАТИЯ]: Объявлена война стране {country.name}!")
+        self.country_modal_active = False
+
     def run(self):
         running = True
         while running:
@@ -212,16 +245,39 @@ class App:
 
                 # Игровой процесс
                 elif self.state == "GAME":
+                    if self.country_modal_active:
+                        if event.type == pygame.MOUSEBUTTONDOWN:
+                            # Проверяем клик вне границ модального окна
+                            if not self.country_modal_rect.collidepoint(event.pos):
+                                self.country_modal_active = False
+                            else:
+                                if self.modal_close_btn.handle_event(event):
+                                    self.country_modal_active = False
+                                elif self.modal_war_btn and self.modal_war_btn.handle_event(event):
+                                    self.declare_war_on_country(self.selected_modal_country)
+                        continue  # Блокируем остальные игровые действия, пока открыта карточка нации
+
+                    # Обычный инпут в игре
                     self.game.handle_input(event)
 
-                    # Проверяем интерактивные клики по планированию
-                    if pygame.mouse.get_pressed()[2]:  # ПКМ на планирование наступления
-                        pos = pygame.mouse.get_pos()
-                        for prov in self.game.provinces:
-                            if prov.is_hovered(pos, self.game.zoom, self.game.pan_x, self.game.pan_y):
-                                if self.game.selected_division and prov != self.game.selected_division.province:
-                                    self.game.selected_division.target_province = prov
+                    if event.type == pygame.MOUSEBUTTONDOWN:
+                        if event.button == 3:  # ПКМ (Правый клик)
+                            clicked_prov = None
+                            for prov in self.game.provinces:
+                                if prov.is_hovered(event.pos, self.game.zoom, self.game.pan_x, self.game.pan_y):
+                                    clicked_prov = prov
+                                    break
 
+                            if clicked_prov:
+                                # Если у игрока выделена дивизия и целевая провинция не совпадает с текущей -> начертить план
+                                if self.game.selected_division and clicked_prov != self.game.selected_division.province:
+                                    self.game.selected_division.target_province = clicked_prov
+                                else:
+                                    # Иначе открыть карточку страны-владельца
+                                    if clicked_prov.owner:
+                                        self.open_country_info_modal(clicked_prov.owner)
+
+                    # Проверка нажатия игровых кнопок на правой панели
                     for btn in self.game_ui_buttons:
                         if btn.handle_event(event):
                             if "Пропустить" in btn.text:
@@ -406,6 +462,181 @@ class App:
         for btn in self.cheat_buttons:
             btn.draw(self.screen)
 
+    def draw_province_info_panel(self, prov):
+        """Метод вывода детальной сводки по провинции на боковой панели"""
+        x_start = SCREEN_WIDTH - 280
+
+        prov_title = self.font_main.render(prov.name, True, COLOR_ACCENT)
+        self.screen.blit(prov_title, (x_start, 70))
+
+        owner_name = prov.owner.name if prov.owner else "Нейтральная территория"
+        owner_text = self.font_ui.render(f"Контроль: {owner_name}", True, COLOR_TEXT_LIGHT)
+        self.screen.blit(owner_text, (x_start, 95))
+
+        # Перевод ландшафта
+        terrain_dict = {"urban": "Город", "forest": "Тайга/Лес", "water": "Водный сектор"}
+        terrain_rus = terrain_dict.get(prov.terrain, prov.terrain)
+        terrain_text = self.font_ui.render(f"Ландшафт: {terrain_rus}", True, COLOR_TEXT_LIGHT)
+        self.screen.blit(terrain_text, (x_start, 115))
+
+        mine_status = "Имеется (Добыча угля/ресурсов)" if prov.has_mine else "Отсутствует"
+        mine_text = self.font_ui.render(f"Шахта: {mine_status}", True, COLOR_TEXT_LIGHT)
+        self.screen.blit(mine_text, (x_start, 135))
+
+        # Перевод производств
+        prod_names = {"none": "Пусто", "rifles": "Винтовки", "artillery": "Орудия", "trucks": "Грузовики",
+                      "tanks": "Тракторы"}
+        workshop_strings = [prod_names.get(w, w) for w in prov.workshops]
+        workshops_text = self.font_small.render(f"Мастерские: {', '.join(workshop_strings)}", True, COLOR_TEXT_LIGHT)
+        self.screen.blit(workshops_text, (x_start, 155))
+
+        supply_text = self.font_small.render(
+            f"Снабжение: {prov.get_current_supply_weight():.1f} / {prov.supply_limit} ед.", True, COLOR_TEXT_LIGHT)
+        self.screen.blit(supply_text, (x_start, 175))
+
+        # Список дивизий в провинции
+        div_list_y = 200
+        div_title = self.font_ui.render("Дивизии в провинции:", True, COLOR_ACCENT)
+        self.screen.blit(div_title, (x_start, div_list_y))
+        div_list_y += 20
+
+        for d in prov.divisions:
+            is_selected = (d == self.game.selected_division)
+            text_color = (241, 196, 15) if is_selected else COLOR_TEXT_LIGHT
+
+            d_info = f"- {d.name} (Орг: {int(d.organization)}%)"
+            d_surf = self.font_small.render(d_info, True, text_color)
+            self.screen.blit(d_surf, (x_start + 10, div_list_y))
+
+            # Обработка клика ЛКМ для выбора дивизии игрока
+            d_rect = pygame.Rect(x_start, div_list_y, 260, 16)
+            if d_rect.collidepoint(pygame.mouse.get_pos()) and pygame.mouse.get_pressed()[0]:
+                if prov.owner == self.game.player_country:
+                    self.game.selected_division = d
+
+            div_list_y += 18
+
+        # Подробные тактические данные о выделенной дивизии игрока
+        if self.game.selected_division and self.game.selected_division.province == prov:
+            sel_div = self.game.selected_division
+            pygame.draw.rect(self.screen, (47, 53, 66), (x_start, div_list_y + 10, 260, 230),
+                             border_radius=6)
+
+            title_sd = self.font_ui.render(f"Выбрана: {sel_div.name}", True, (241, 196, 15))
+            self.screen.blit(title_sd, (x_start + 10, div_list_y + 15))
+
+            stats = sel_div.get_combat_stats()
+            stat_texts = [
+                f"Прочность: {int(sel_div.strength * 100)}%",
+                f"Пехотная атака: {int(stats['soft_attack'])}",
+                f"Бронебойная атака: {int(stats['hard_attack'])}",
+                f"Защита: {int(stats['defense'])}",
+                f"Опыт: {sel_div.experience}/1000 ({sel_div.veterancy_level})",
+                f"Окопы: ур. {getattr(sel_div, 'entrenchment_level', 0)} (+{int(getattr(sel_div, 'entrenchment_level', 0) * 10)}% к защите)",
+                f"Кулдаун атаки: {getattr(sel_div, 'attack_cooldown', 0)} ходов",
+            ]
+
+            sy = div_list_y + 35
+            for st in stat_texts:
+                st_surf = self.font_small.render(st, True, COLOR_TEXT_LIGHT)
+                self.screen.blit(st_surf, (x_start + 10, sy))
+                sy += 16
+
+            if sel_div.commander:
+                gen_text = self.font_small.render(f"Генерал: {sel_div.commander.name}", True, COLOR_ACCENT)
+                self.screen.blit(gen_text, (x_start + 10, sy + 5))
+                sy += 16
+
+            plan_help = self.font_small.render("ПКМ на соседнюю пров. - План", True, (46, 204, 113))
+            self.screen.blit(plan_help, (x_start + 10, sy + 12))
+
+            if sel_div.target_province:
+                target_txt = self.font_small.render(f"Цель наступления: {sel_div.target_province.name}", True,
+                                                    (241, 196, 15))
+                self.screen.blit(target_txt, (x_start + 10, sy + 25))
+
+    def draw_country_info_panel(self, country):
+        """Отрисовывает детальную панель государства поверх карты (модальное окно)"""
+        # Затемнение карты под окном
+        dim_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        dim_surf.fill((0, 0, 0, 160))
+        self.screen.blit(dim_surf, (0, 0))
+
+        # Окно модалки
+        pygame.draw.rect(self.screen, COLOR_PANEL, self.country_modal_rect, border_radius=10)
+        pygame.draw.rect(self.screen, country.color, self.country_modal_rect, width=3, border_radius=10)
+
+        x = self.country_modal_rect.x
+        y = self.country_modal_rect.y
+        w = self.country_modal_rect.width
+
+        # Заголовки
+        title_surf = self.font_title.render(country.name, True, COLOR_TEXT_LIGHT)
+        self.screen.blit(title_surf, (x + 20, y + 20))
+
+        ideology_text = self.font_main.render(f"Идеология: {getattr(country, 'ideology', 'Нейтралитет')}", True,
+                                              COLOR_ACCENT)
+        self.screen.blit(ideology_text, (x + 20, y + 55))
+
+        # Портрет лидера фракции
+        port_rect = pygame.Rect(x + 20, y + 90, 120, 150)
+        pygame.draw.rect(self.screen, country.leader.portrait_color, port_rect, border_radius=4)
+        pygame.draw.rect(self.screen, COLOR_TEXT_LIGHT, port_rect, width=2, border_radius=4)
+
+        portrait = country.leader.get_portrait()
+        if portrait:
+            self.screen.blit(portrait, (x + 20, y + 90))
+        else:
+            init_surf = self.font_title.render(country.leader.name[0], True, COLOR_TEXT_LIGHT)
+            init_rect = init_surf.get_rect(center=port_rect.center)
+            self.screen.blit(init_surf, init_rect)
+
+        # Биография лидера фракции
+        l_name_surf = self.font_main.render(f"{country.leader.title}: {country.leader.name}", True, COLOR_TEXT_LIGHT)
+        self.screen.blit(l_name_surf, (x + 160, y + 90))
+
+        bio_rect = pygame.Rect(x + 160, y + 115, w - 180, 125)
+        self.draw_text_wrap(country.leader.bio or "История нации покрыта тайной Березовских лесов.", bio_rect,
+                            self.font_small, COLOR_TEXT_LIGHT)
+
+        # Сбор сводной статистики по нации
+        stats_y = y + 260
+        stats_title = self.font_main.render("Сводные данные фракции:", True, COLOR_ACCENT)
+        self.screen.blit(stats_title, (x + 20, stats_y))
+
+        total_divisions = len(country.divisions)
+        total_manpower = sum(d.manpower for d in country.divisions) + country.manpower
+        rifles = country.equipment.get("rifles", 0)
+        artillery = country.equipment.get("artillery", 0)
+        tanks = country.equipment.get("tanks", 0)
+
+        stat_lines_col1 = [
+            f"Контролируемые провинции: {len(country.provinces)}",
+            f"Численность армии: {total_divisions} див. ({total_manpower} чел.)",
+        ]
+        stat_lines_col2 = [
+            f"Винтовки на складах: {rifles} шт.",
+            f"Орудия на складах: {artillery} шт.",
+            f"Танки на складах: {tanks} шт."
+        ]
+
+        sy = stats_y + 25
+        for line in stat_lines_col1:
+            st_surf = self.font_small.render(line, True, COLOR_TEXT_LIGHT)
+            self.screen.blit(st_surf, (x + 20, sy))
+            sy += 20
+
+        sy = stats_y + 25
+        for line in stat_lines_col2:
+            st_surf = self.font_small.render(line, True, COLOR_TEXT_LIGHT)
+            self.screen.blit(st_surf, (x + 280, sy))
+            sy += 20
+
+        # Кнопки взаимодействия внизу
+        self.modal_close_btn.draw(self.screen)
+        if self.modal_war_btn:
+            self.modal_war_btn.draw(self.screen)
+
     def draw_game_screen(self):
         m_width = int(self.game.map_original.get_width() * self.game.zoom)
         m_height = int(self.game.map_original.get_height() * self.game.zoom)
@@ -482,26 +713,33 @@ class App:
         # Рисуем индикаторы битв (скрещенные мечи)
         for combat in self.game.active_combats:
             cx, cy = combat.province.get_screen_pos(self.game.zoom, self.game.pan_x, self.game.pan_y)
-            # Рисуем яркую мигающую метку боя
+            # Рисуем яркую метку боя
             combat_rect = pygame.Rect(cx - 20, cy - 50, 40, 25)
             pygame.draw.rect(self.screen, (192, 57, 43), combat_rect, border_radius=4)
             text_b = self.font_small.render("БОЙ!", True, (255, 255, 255))
             self.screen.blit(text_b, (cx - 15, cy - 46))
 
-        # 3. Верхняя строка ресурсов страны (в стиле HoI4)
+        # 3. Верхняя строка ресурсов страны (в стиле HoI4) c интеграцией Погоды
         top_bar_rect = pygame.Rect(0, 0, SCREEN_WIDTH - 300, 35)
         pygame.draw.rect(self.screen, COLOR_PANEL, top_bar_rect)
         pygame.draw.line(self.screen, (0, 0, 0), (0, 35), (SCREEN_WIDTH - 300, 35), 2)
 
         player_c = self.game.player_country
         if player_c:
+            # Названия погоды и сезона
+            weather_names = {"clear": "Ясно", "rain": "Дождь", "snowstorm": "Снегопад", "blizzard": "Метель"}
+            season_names = {"spring": "Весна", "summer": "Лето", "autumn": "Осень", "winter": "Зима"}
+
+            cur_weather = weather_names.get(self.game.weather_mgr.current_weather,
+                                            self.game.weather_mgr.current_weather)
+            cur_season = season_names.get(self.game.weather_mgr.season, self.game.weather_mgr.season)
+
             res_str = (
                 f"Людские ресурсы: {player_c.manpower} | "
                 f"Полит. власть: {player_c.political_power} | "
                 f"Топливо: {int(player_c.fuel)}л | "
                 f"Винтовки: {player_c.equipment[EQ_RIFLES]} | "
-                f"Орудия: {player_c.equipment[EQ_ARTILLERY]} | "
-                f"Танки: {player_c.equipment[EQ_TANKS]}"
+                f"Погода: {cur_season} ({cur_weather})"
             )
             res_surf = self.font_ui.render(res_str, True, COLOR_TEXT_LIGHT)
             self.screen.blit(res_surf, (15, 8))
@@ -515,86 +753,18 @@ class App:
         turn_text = self.font_title.render(f"Ход: {self.game.turn}", True, COLOR_TEXT_LIGHT)
         self.screen.blit(turn_text, (SCREEN_WIDTH - 280, 20))
 
-        # Выбранная провинция
+        # Вызов переработанного рендеринга информации о провинции
         prov = self.game.selected_province
         if prov:
-            prov_title = self.font_main.render(prov.name, True, COLOR_ACCENT)
-            self.screen.blit(prov_title, (SCREEN_WIDTH - 280, 70))
-
-            owner_name = prov.owner.name if prov.owner else "Нейтральная территория"
-            owner_text = self.font_ui.render(f"Контроль: {owner_name}", True, COLOR_TEXT_LIGHT)
-            self.screen.blit(owner_text, (SCREEN_WIDTH - 280, 100))
-
-            supply_text = self.font_small.render(
-                f"Снабжение: {prov.get_current_supply_weight():.1f} / {prov.supply_limit} ед.", True, COLOR_TEXT_LIGHT)
-            self.screen.blit(supply_text, (SCREEN_WIDTH - 280, 120))
-
-            # Список дивизий в провинции
-            div_list_y = 145
-            div_title = self.font_ui.render("Дивизии в провинции:", True, COLOR_ACCENT)
-            self.screen.blit(div_title, (SCREEN_WIDTH - 280, div_list_y))
-            div_list_y += 20
-
-            for d in prov.divisions:
-                # Определяем цвет наведения на строчку дивизии
-                is_selected = (d == self.game.selected_division)
-                text_color = (241, 196, 15) if is_selected else COLOR_TEXT_LIGHT
-
-                # Выводим название дивизии, организацию и прикрепленного генерала
-                d_info = f"- {d.name} (Орг: {int(d.organization)}%)"
-                d_surf = self.font_small.render(d_info, True, text_color)
-                self.screen.blit(d_surf, (SCREEN_WIDTH - 270, div_list_y))
-
-                # Обработка клика по строчке для выбора дивизии игрока
-                d_rect = pygame.Rect(SCREEN_WIDTH - 280, div_list_y, 260, 16)
-                if d_rect.collidepoint(pygame.mouse.get_pos()) and pygame.mouse.get_pressed()[0]:
-                    if prov.owner == self.game.player_country:
-                        self.game.selected_division = d
-
-                div_list_y += 18
-
-            # Если дивизия игрока выбрана, показываем подробную информацию о ней
-            if self.game.selected_division and self.game.selected_division.province == prov:
-                sel_div = self.game.selected_division
-                pygame.draw.rect(self.screen, (47, 53, 66), (SCREEN_WIDTH - 280, div_list_y + 10, 260, 230),
-                                 border_radius=6)
-
-                title_sd = self.font_ui.render(f"Выбрана: {sel_div.name}", True, (241, 196, 15))
-                self.screen.blit(title_sd, (SCREEN_WIDTH - 270, div_list_y + 15))
-
-                stats = sel_div.get_combat_stats()
-                stat_texts = [
-                    f"Прочность: {int(sel_div.strength * 100)}%",
-                    f"Противопехотная атака: {int(stats['soft_attack'])}",
-                    f"Противотанковая атака: {int(stats['hard_attack'])}",
-                    f"Защита: {int(stats['defense'])}",
-                    f"Бонус планирования: +{int(sel_div.planning_bonus * 100)}%"
-                ]
-
-                sy = div_list_y + 40
-                for st in stat_texts:
-                    st_surf = self.font_small.render(st, True, COLOR_TEXT_LIGHT)
-                    self.screen.blit(st_surf, (SCREEN_WIDTH - 270, sy))
-                    sy += 16
-
-                # Показываем генерала
-                if sel_div.commander:
-                    gen_text = self.font_small.render(f"Генерал: {sel_div.commander.name}", True, COLOR_ACCENT)
-                    self.screen.blit(gen_text, (SCREEN_WIDTH - 270, sy + 5))
-                    sy += 16
-
-                # Инструкция для планирования наступления
-                plan_help = self.font_small.render("ПКМ на соседнюю пров. - План", True, (46, 204, 113))
-                self.screen.blit(plan_help, (SCREEN_WIDTH - 270, sy + 15))
-
-                if sel_div.target_province:
-                    target_txt = self.font_small.render(f"Цель наступления: {sel_div.target_province.name}", True,
-                                                        (241, 196, 15))
-                    self.screen.blit(target_txt, (SCREEN_WIDTH - 270, sy + 30))
+            self.draw_province_info_panel(prov)
 
         # Рисуем кнопки игрового процесса
         for btn in self.game_ui_buttons:
             btn.draw(self.screen)
+
+        # Рисуем модальную карточку фракции, если она активна (ПКМ)
+        if self.country_modal_active and self.selected_modal_country:
+            self.draw_country_info_panel(self.selected_modal_country)
 
 
 if __name__ == "__main__":

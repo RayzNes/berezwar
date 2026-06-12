@@ -12,7 +12,9 @@ class Combat:
         self.log = []
 
     def _apply_damage(self, target, org_damage, str_damage):
-        """Применяет урон к дивизии, включая потери снаряжения"""
+        """Применяет урон к дивизии. Возвращает True, если дивизия была разгромлена (организация упала до 0)"""
+        old_org = target.organization
+
         # Урон по организации
         target.organization = max(0.0, target.organization - org_damage)
 
@@ -29,18 +31,28 @@ class Combat:
                     target.equipment[eq_type] = max(0, target.equipment.get(eq_type, 0) - equipment_loss)
 
         target.update_strength()
+        return old_org > 0 and target.organization <= 0
 
-    def resolve_turn(self):
+    def resolve_turn(self, weather_mgr=None):
         """Проводит одну фазу сражения (за один ход)"""
         if not self.attackers or not self.defenders:
             return False  # Битва закончена
 
         self.log.append(f"--- Битва за {self.province.name} ---")
 
-        # Проверим ширину фронта атакующих
+        # Получаем погодные штрафы
+        weather_penalty = {"attack": 1.0, "defense": 1.0}
+        if weather_mgr:
+            weather_penalty = weather_mgr.get_combat_penalty(self.province)
+
+        # Проверим ширину фронта атакующих и отсеем дивизии на перезарядке
         current_width = 0
         active_attackers = []
         for att in self.attackers:
+            if getattr(att, "attack_cooldown", 0) > 0:
+                self.log.append(f"Дивизия {att.name} восстанавливает силы и не может наступать.")
+                continue
+
             stats = att.get_combat_stats()
             if current_width + stats["width"] <= self.combat_width:
                 active_attackers.append(att)
@@ -48,23 +60,24 @@ class Combat:
             else:
                 self.log.append(f"Дивизия {att.name} осталась в резерве из-за ширины фронта.")
 
-        if not active_attackers:
-            active_attackers = [self.attackers[0]]  # Минимум одна всегда воюет
+        if not active_attackers and self.attackers:
+            # Если все на кулдауне, то воюет первая (с получением штрафа)
+            active_attackers = [self.attackers[0]]
 
         # Атакующие наносят урон
         for att in active_attackers:
             stats_att = att.get_combat_stats()
             target = random.choice(self.defenders)
 
-            # Получаем показатель защиты обороняющейся дивизии
-            target_defense = target.get_combat_stats()["defense"]
-            # Модификатор защиты в городе: увеличивает защиту окопавшихся на 30%
+            # Получаем показатель защиты обороняющейся дивизии с учетом погодной видимости
+            target_defense = target.get_combat_stats()["defense"] * weather_penalty["defense"]
             if self.province.terrain == TERRAIN_URBAN:
                 target_defense *= 1.3
 
-            # Урон по организации и прочности (базовый расчет)
-            damage_org = max(1, int(stats_att["soft_attack"] * 0.15 - target_defense * 0.05))
-            damage_str = max(1, int(stats_att["hard_attack"] * 0.05))
+            # Урон по организации и прочности (применяется погода)
+            damage_org = max(1,
+                             int((stats_att["soft_attack"] * 0.15 - target_defense * 0.05) * weather_penalty["attack"]))
+            damage_str = max(1, int((stats_att["hard_attack"] * 0.05) * weather_penalty["attack"]))
 
             # Штраф танков на 50% в Лесу или Городе
             has_tanks = any(b.b_type == "tank" for b in att.template.battalions)
@@ -72,26 +85,59 @@ class Combat:
                 damage_org = max(1, int(damage_org * 0.5))
                 damage_str = max(1, int(damage_str * 0.5))
 
+            # Применение урона и начисление опыта
+            is_destroyed = self._apply_damage(target, damage_org, damage_str)
+
+            # Атакующему: +5 exp за урон, +50 за разгром
+            xp_gained = (damage_org + damage_str) * 5
+            if is_destroyed:
+                xp_gained += 50
+                self.log.append(f"{att.name} разгромила вражеские позиции (+50 опыта)!")
+            att.experience = min(1000, att.experience + xp_gained)
+
+            # Защитнику: +3 exp за выживание
+            target_xp = (damage_org + damage_str) * 3
+            target.experience = min(1000, target.experience + target_xp)
+
+            # Установка кулдаунов и флагов активности
+            att.attack_cooldown = 2
+            att.has_attacked_this_turn = True
+
             self._apply_damage(target, damage_org, damage_str)
             self.log.append(
                 f"{att.name} наносит урон по {target.name}. Урон Орг: -{damage_org}, Сила: -{damage_str * 10} человек.")
 
-        # Обороняющиеся наносят урон
+        # Обороняющиеся наносят урон (контратакуют)
         for df in self.defenders:
+            df.attack_cooldown = 2  # Оборона также изнуряет дивизию
             stats_df = df.get_combat_stats()
             target = random.choice(active_attackers)
 
             # Базовые параметры защиты у нападающего в полевых условиях атаки
-            target_defense = target.get_combat_stats()["defense"]
+            target_defense = target.get_combat_stats()["defense"] * weather_penalty["defense"]
 
-            damage_org = max(1, int(stats_df["soft_attack"] * 0.15 - target_defense * 0.05))
-            damage_str = max(1, int(stats_df["hard_attack"] * 0.05))
+            damage_org = max(1,
+                             int((stats_df["soft_attack"] * 0.15 - target_defense * 0.05) * weather_penalty["attack"]))
+            damage_str = max(1, int((stats_df["hard_attack"] * 0.05) * weather_penalty["attack"]))
 
             # Штраф обороняющихся танков на 50% при плотном городском бое или в лесном массиве
             has_tanks = any(b.b_type == "tank" for b in df.template.battalions)
             if self.province.terrain in (TERRAIN_FOREST, TERRAIN_URBAN) and has_tanks:
                 damage_org = max(1, int(damage_org * 0.5))
                 damage_str = max(1, int(damage_str * 0.5))
+
+            is_destroyed = self._apply_damage(target, damage_org, damage_str)
+
+            # Начисление опыта контр-атакующему защитнику
+            xp_gained = (damage_org + damage_str) * 5
+            if is_destroyed:
+                xp_gained += 50
+                self.log.append(f"{df.name} успешно остановила наступление врага (+50 опыта)!")
+            df.experience = min(1000, df.experience + xp_gained)
+
+            # Опыт цели (атакующей) за выживание в бою
+            target_xp = (damage_org + damage_str) * 3
+            target.experience = min(1000, target.experience + target_xp)
 
             self._apply_damage(target, damage_org, damage_str)
             self.log.append(

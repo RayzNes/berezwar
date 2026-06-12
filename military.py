@@ -1,7 +1,7 @@
 # military.py
 import pygame
 import os
-from constants import EQ_RIFLES, EQ_ARTILLERY, EQ_TRUCKS, EQ_TANKS
+from constants import EQ_RIFLES, EQ_ARTILLERY, EQ_TRUCKS, EQ_TANKS, TERRAIN_URBAN
 
 
 def load_commander_portrait(filename, fallback_color):
@@ -147,6 +147,58 @@ class Division:
         self.target_province = None  # Цель наступления
         self.planning_bonus = 0.0  # Накапливаемый бонус планирования
 
+        # Опыт и уровни ветеранства
+        self.experience = 0
+
+        # Кулдауны на атаки и движения
+        self.attack_cooldown = 0
+        self.movement_cooldown = 0
+
+        # Окопавшиеся (укрепления)
+        self.entrenchment_level = 0
+        self.entrenchment = 0.0
+        self.turns_idle = 0
+
+        # Флаги активности в рамках одного хода
+        self.has_moved_this_turn = False
+        self.has_attacked_this_turn = False
+
+    @property
+    def veterancy_level(self):
+        if self.experience >= 1000:
+            return "Элитные"
+        elif self.experience >= 600:
+            return "Ветераны"
+        elif self.experience >= 300:
+            return "Опытные"
+        return "Новички"
+
+    @property
+    def veterancy_bonus(self):
+        if self.experience >= 1000:
+            return 1.50
+        elif self.experience >= 600:
+            return 1.30
+        elif self.experience >= 300:
+            return 1.15
+        return 1.0
+
+    def update_entrenchment(self):
+        """Увеличивает уровень окопов, если дивизия не совершала маневров и не атаковала"""
+        if self.has_moved_this_turn or self.has_attacked_this_turn:
+            self.turns_idle = 0
+            self.entrenchment_level = 0
+        else:
+            self.turns_idle += 1
+            if self.turns_idle >= 2:
+                self.entrenchment_level = min(5, self.entrenchment_level + 1)
+
+        self.entrenchment = self.entrenchment_level * 0.1
+
+        # Сброс флагов хода
+        self.has_moved_this_turn = False
+        self.has_attacked_this_turn = False
+
     def update_strength(self):
         """Обновляет силу дивизии на основе укомплектованности снаряжением и людьми"""
         total_required_eq = sum(self.max_equipment.values())
@@ -158,7 +210,7 @@ class Division:
         self.strength = min(eq_ratio, mp_ratio)
 
     def get_combat_stats(self):
-        """Возвращает текущие боевые параметры с учётом укомплектованности и бонусов"""
+        """Возвращает текущие боевые параметры с учётом укомплектованности, бонусов и окопов"""
         base_stats = self.template.get_stats()
         multiplier = self.strength
 
@@ -169,10 +221,17 @@ class Division:
         # Влияние планирования
         plan_bonus = 1.0 + self.planning_bonus
 
+        # Влияние опыта (ветеранства) на силу атаки
+        vet_bonus = self.veterancy_bonus
+
+        # Расчет бонуса за укрепления (удваивается в городе)
+        entrench_mult = 0.2 if (self.province and self.province.terrain == TERRAIN_URBAN) else 0.1
+        defense_bonus = 1.0 + self.entrenchment_level * entrench_mult
+
         return {
-            "soft_attack": base_stats["soft_attack"] * multiplier * comm_attack_bonus * plan_bonus,
-            "hard_attack": base_stats["hard_attack"] * multiplier * comm_attack_bonus * plan_bonus,
-            "defense": base_stats["defense"] * multiplier * comm_def_bonus,
+            "soft_attack": base_stats["soft_attack"] * multiplier * comm_attack_bonus * plan_bonus * vet_bonus,
+            "hard_attack": base_stats["hard_attack"] * multiplier * comm_attack_bonus * plan_bonus * vet_bonus,
+            "defense": base_stats["defense"] * multiplier * comm_def_bonus * defense_bonus,
             "width": base_stats["width"],
             "supply_use": base_stats["supply_use"]
         }

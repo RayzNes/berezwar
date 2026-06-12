@@ -1,3 +1,4 @@
+# models.py
 import pygame
 from constants import (
     COLOR_NEUTRAL, EQ_RIFLES, EQ_ARTILLERY, EQ_TRUCKS, EQ_TANKS, BASE_SUPPLY_LIMIT,
@@ -11,7 +12,7 @@ class Leader:
         self.title = title
         self.portrait_color = portrait_color
         self.bio = bio
-        self.portrait_file = portrait_file  # Добавить поле
+        self.portrait_file = portrait_file
         self.portrait_cache = None
 
     def get_portrait(self):
@@ -29,12 +30,15 @@ class Country:
         self.description = description
         self.provinces = []
 
+        # Идеологическая принадлежность
+        self.ideology = "Нейтралитет"
+
         # ХоИ4-ресурсы страны
         self.manpower = 5000
         self.political_power = 150
         self.fuel = 200.0
         self.money = 1000
-        self.raw_materials = 100  # Добавлен новый атрибут ресурсов сырья
+        self.raw_materials = 100
         self.equipment = {
             EQ_RIFLES: 1000,
             EQ_ARTILLERY: 100,
@@ -47,6 +51,7 @@ class Country:
         self.division_templates = []
         self.armies = []
         self.commanders = []  # Пул генералов
+
 
 class Province:
     def __init__(self, id_num, name, polygon):
