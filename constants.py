@@ -23,3 +23,21 @@ COLOR_BLUE = (41, 128, 185)       # Администрация
 COLOR_GREEN = (39, 174, 96)       # Таёжное Братство
 COLOR_ORANGE = (211, 84, 0)       # Фурманово — Макарляндия
 COLOR_NEUTRAL = (127, 140, 141)   # Нейтралы
+
+# Военные параметры
+BASE_COMBAT_WIDTH = 80
+BASE_SUPPLY_LIMIT = 10
+MAX_PLANNING_BONUS = 0.30  # +30% к атаке при полной подготовке
+
+# Типы снаряжения
+EQ_RIFLES = "rifles"
+EQ_ARTILLERY = "artillery"
+EQ_TRUCKS = "trucks"
+EQ_TANKS = "tanks"
+
+EQUIPMENT_NAMES = {
+    EQ_RIFLES: "Винтовки",
+    EQ_ARTILLERY: "Орудия",
+    EQ_TRUCKS: "Грузовики",
+    EQ_TANKS: "Танки/Тракторы"
+}
